@@ -176,16 +176,18 @@ Markdown pipe tables get a display-only treatment: wide tables are
 wrapped and drawn to neatly fit window width, with cleaner separators,
 while the underlying buffer text remains ordinary Markdown.
 
-Press =RET= on one strict file target at point: a file-content row in tool
-output, a plain path reference, or the label of a local Markdown link.
-Tool headers, fences, preview hints, and other non-content rows do not open
-files.  Plain locations such as =src/app.el:12:3= visit their one-based
-physical file line and optional one-based column; a range such as
-=src/app.el#L12-L20= visits its first line only.  If an explicit location is
-outside an existing narrowing, the default =widen-automatically= policy widens
-the file.  Coordinates apply only to file-visiting buffers; directory targets
-retain native Dired point and marks.  A target without a location keeps the
-point, mark, and narrowing chosen by normal Emacs file visiting.
+Press =RET= or click with the mouse on one target: a file-content row in tool
+output, a plain path reference, a local Markdown link, an HTTP(S) Markdown
+link, or a bare HTTP(S) URL.  Web links open through Emacs' =browse-url=; file
+links retain normal file visiting.  Tool headers, fences, preview hints, and other
+non-content rows do not open files.  Plain locations such as
+=src/app.el:12:3= visit their one-based physical file line and optional
+one-based column; a range such as =src/app.el#L12-L20= visits its first line
+only.  If an explicit location is outside an existing narrowing, the default
+=widen-automatically= policy widens the file.  Coordinates apply only to
+file-visiting buffers; directory targets retain native Dired point and marks.
+A target without a location keeps the point, mark, and narrowing chosen by
+normal Emacs file visiting.
 
 By default Pi requests the native other-window opener.  Use =C-u RET= to invert
 =pi-coding-agent-visit-file-other-window= for that visit; with the default

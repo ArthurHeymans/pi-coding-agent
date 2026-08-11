@@ -4261,13 +4261,23 @@ and collapsed references always own and suppress fallback."
   (car (pi-coding-agent--semantic-link-captures
         (plist-get host :start) (plist-get host :end))))
 
-(defun pi-coding-agent--semantic-link-target (owner)
-  "Return the valid local file target for semantic link OWNER, or nil.
-Only an inline link or inline image with a strict local destination qualifies.
-URL schemes, mailto links, protocol-relative links, fragment-only links, empty
-or malformed destinations, bare filenames, and reference forms are owned but
-invalid.  A local fragment is returned separately and is never interpreted as
-line metadata."
+(defun pi-coding-agent--make-url-target (url &optional bounds label)
+  "Return a browser target for URL with optional visible BOUNDS and LABEL."
+  (list :source :url
+        :raw url
+        :display (pi-coding-agent--escape-control-chars-for-display url)
+        :url url
+        :bounds bounds
+        :label label))
+
+(defun pi-coding-agent--semantic-link-target (owner &optional include-urls)
+  "Return a target for semantic link OWNER, or nil.
+Only an inline link or inline image with a strict local destination qualifies
+by default.  When INCLUDE-URLS is non-nil, HTTP and HTTPS destinations produce
+browser targets as well.  Other URL schemes, mailto links, protocol-relative
+links, fragment-only links, empty or malformed destinations, bare filenames,
+and reference forms are owned but invalid.  A local fragment is returned
+separately and is never interpreted as line metadata."
   (let* ((type (plist-get owner :type))
          (label-projection (plist-get owner :label-projection))
          (label-positions (plist-get label-projection :positions))
@@ -4287,6 +4297,7 @@ line metadata."
                          (string-prefix-p "<" raw)
                          (string-suffix-p ">" raw)))
              (source (if angle (substring raw 1 -1) raw))
+             (url (pi-coding-agent--semantic-link-unescape source))
              (fragment-index
               (pi-coding-agent--semantic-link-fragment-index source))
              (path-source (if fragment-index
@@ -4295,21 +4306,26 @@ line metadata."
              (fragment (and fragment-index
                             (substring source (1+ fragment-index))))
              (path (pi-coding-agent--semantic-link-unescape path-source))
-             (case-fold-search t))
-        (when (and (not (string-empty-p path))
-                   (not (string-prefix-p "#" source))
-                   (not (string-prefix-p "//" source))
-                   (not (string-match-p
-                         "\\`[[:alpha:]][[:alnum:]+.-]*:" source))
-                   (pi-coding-agent--strict-text-file-path-p path angle))
+             (case-fold-search t)
+             (label (plist-get label-projection :text)))
+        (cond
+         ((and include-urls
+               (string-match-p "\\`https?://" url))
+          (pi-coding-agent--make-url-target
+           url (plist-get label-projection :bounds) label))
+         ((and (not (string-empty-p path))
+               (not (string-prefix-p "#" source))
+               (not (string-prefix-p "//" source))
+               (not (string-match-p
+                     "\\`[[:alpha:]][[:alnum:]+.-]*:" source))
+               (pi-coding-agent--strict-text-file-path-p path angle))
           (let* ((anchor (pi-coding-agent--chat-session-directory))
-                 (emacs-path (pi-coding-agent--emacs-path path anchor))
-                 (label (plist-get label-projection :text)))
+                 (emacs-path (pi-coding-agent--emacs-path path anchor)))
             (pi-coding-agent--make-file-target
              :link raw emacs-path
              :bounds (plist-get label-projection :bounds)
              :fragment fragment
-             :label label)))))))
+             :label label))))))))
 
 (defun pi-coding-agent--semantic-link-parser-overlays ()
   "Return every inline-parser overlay md-ts could adopt in this buffer.
@@ -4415,11 +4431,14 @@ identity before its first error is re-signaled."
       (when cleanup-error
         (signal (car cleanup-error) (cdr cleanup-error))))))
 
-(defun pi-coding-agent--semantic-link-file-target-at-point ()
+(defun pi-coding-agent--semantic-link-file-target-at-point
+    (&optional include-urls)
   "Return explicit tri-state semantic Markdown link resolution at point.
 The `:status' value is exactly one of `:not-a-link', `:owned-valid', or
 `:owned-invalid'.  Ownership is source/tree based, independent of font-lock,
 invisibility, faces, buttons, file existence, and unreleased md-ts-mode APIs.
+When INCLUDE-URLS is non-nil, HTTP and HTTPS links resolve to browser targets;
+otherwise only local file targets are returned.
 This distinction prevents an owned non-file or malformed link from falling
 through to a path-like visible label.
 
@@ -4493,7 +4512,8 @@ narrowing cannot clip semantic ownership; the caller's restriction is restored."
     (if (eq (plist-get parse-result :status) :owner)
         (if-let* ((target
                    (pi-coding-agent--semantic-link-target
-                    (plist-get parse-result :owner))))
+                    (plist-get parse-result :owner)
+                    include-urls)))
             (list :status :owned-valid :target target)
           (list :status :owned-invalid))
       parse-result))))
@@ -4679,22 +4699,131 @@ Return nil outside a cold tool.  Any chat restriction is restored exactly."
      (plist-get cold-block :bounds)
      (lambda () (pi-coding-agent--cold-tool-line-at-point cold-block)))))
 
-(defun pi-coding-agent--file-target-at-point ()
-  "Return the file target at point, or nil.
+(defun pi-coding-agent--bare-url-target-at-point (&optional markdown-code-span)
+  "Return an HTTP or HTTPS target for a bare URL at point, or nil.
+MARKDOWN-CODE-SPAN suppresses URL activation inside inline code.  Fenced code
+and tool output are protected by their fontified faces and authoritative block
+metadata before this fallback is reached."
+  (unless markdown-code-span
+    (when-let* ((bounds (bounds-of-thing-at-point 'url)))
+      (let ((url (buffer-substring-no-properties (car bounds) (cdr bounds)))
+            (case-fold-search t))
+        (when (and (string-match-p "\\`https?://" url)
+                   (not (pi-coding-agent--markdown-code-span-at-point-p
+                         (car bounds) (cdr bounds))))
+          (pi-coding-agent--make-url-target url bounds))))))
+
+(defun pi-coding-agent--web-hover-usable-p (start)
+  "Return non-nil when START is visible non-tool text rather than code."
+  (and (pi-coding-agent--visible-text-span-p start)
+       (not (get-char-property start 'pi-coding-agent-cold-tool-block))
+       (not (seq-some
+             (lambda (overlay)
+               (overlay-get overlay 'pi-coding-agent-tool-block))
+             (overlays-at start)))
+       (let ((face (get-char-property start 'face)))
+         (not (or (eq face 'md-ts-code)
+                  (and (listp face) (memq 'md-ts-code face)))))))
+
+(defun pi-coding-agent--highlight-web-links (start end)
+  "Add hover highlighting and tooltips to visible web links in START..END.
+This is deliberately text-property-only; activation remains centralized in the
+chat mouse handler and `RET' command."
+  (when (derived-mode-p 'pi-coding-agent-chat-mode)
+    (with-silent-modifications
+      (save-excursion
+        (goto-char start)
+        (let ((case-fold-search t)
+              (scan-start (line-beginning-position))
+              (scan-end (save-excursion
+                          (goto-char end)
+                          (line-end-position))))
+          ;; Remove stale properties first when font-lock revisits edited text.
+          (goto-char scan-start)
+          (while (< (point) scan-end)
+            (let ((next (next-single-property-change
+                         (point) 'pi-coding-agent--web-link-hover
+                         nil scan-end)))
+              (when (get-text-property (point)
+                                       'pi-coding-agent--web-link-hover)
+                (remove-text-properties
+                 (point) next
+                 '(mouse-face nil help-echo nil
+                   pi-coding-agent--web-link-hover nil)))
+              (goto-char next)))
+          (dolist (regexp '("\\[\\([^]]+\\)\\](\\(https?://\\)"
+                            "\\[\\([^]]+\\)\\](<\\(https?://\\)"))
+            (goto-char scan-start)
+            (while (re-search-forward regexp scan-end t)
+              (let* ((label-start (match-beginning 1))
+                     (label-end (match-end 1))
+                     (url-bounds
+                      (save-excursion
+                        (goto-char (match-beginning 2))
+                        (bounds-of-thing-at-point 'url)))
+                     (url (and url-bounds
+                               (buffer-substring-no-properties
+                                (car url-bounds) (cdr url-bounds)))))
+                (when (and url (< label-start label-end)
+                           (pi-coding-agent--web-hover-usable-p label-start))
+                  (add-text-properties
+                   label-start label-end
+                   (list 'mouse-face 'highlight
+                         'help-echo url
+                         'pi-coding-agent--web-link-hover t))))))
+          (goto-char scan-start)
+          (while (re-search-forward "https?://" scan-end t)
+            (let* ((url-bounds
+                    (save-excursion
+                      (goto-char (match-beginning 0))
+                      (bounds-of-thing-at-point 'url)))
+                   (url-start (car-safe url-bounds))
+                   (url-end (cdr-safe url-bounds)))
+              (when (and url-start (<= url-end scan-end)
+                         (pi-coding-agent--web-hover-usable-p url-start))
+                (add-text-properties
+                 url-start url-end
+                 (list 'mouse-face 'highlight
+                       'help-echo (buffer-substring-no-properties
+                                   url-start url-end)
+                       'pi-coding-agent--web-link-hover t)))
+              (when (and url-end (> url-end (point)))
+                (goto-char url-end)))))))))
+
+(defun pi-coding-agent--fontify-web-links (limit)
+  "Add web-link hover properties through LIMIT for this font-lock pass."
+  (let ((start (point)))
+    (pi-coding-agent--highlight-web-links start limit)
+    (goto-char limit)
+    nil))
+
+(defun pi-coding-agent--target-at-point ()
+  "Return the target at point, or nil.
 Resolution priority is authoritative hot/cold tool metadata, semantic Markdown
-link ownership, then strict visible text.  Invalid or absent tool metadata never
-falls through.  Semantic lookup is explicitly tri-state, so an owned non-file,
-reference, or malformed link also never falls through to a path-like label."
+link ownership, strict visible file text, then a bare HTTP or HTTPS URL.
+Invalid or absent tool metadata never falls through.  Semantic lookup is
+explicitly tri-state, so an owned non-file, reference, or malformed link also
+never falls through to a path-like label or bare URL fallback."
   (if-let* ((overlay (pi-coding-agent--tool-overlay-at-point)))
       (pi-coding-agent--tool-file-target overlay)
     (if-let* ((cold-block (pi-coding-agent--cold-tool-block-at-point)))
         (pi-coding-agent--cold-tool-file-target cold-block)
-      (pcase (pi-coding-agent--semantic-link-file-target-at-point)
+      (pcase (pi-coding-agent--semantic-link-file-target-at-point t)
         (`(:status :owned-valid :target ,target) target)
         (`(:status :owned-invalid) nil)
         (`(:status :not-a-link . ,properties)
-         (pi-coding-agent--text-file-target-at-point
-          (plist-get properties :markdown-code-span)))))))
+         (or (pi-coding-agent--text-file-target-at-point
+              (plist-get properties :markdown-code-span))
+             (pi-coding-agent--bare-url-target-at-point
+              (plist-get properties :markdown-code-span))))))))
+
+(defun pi-coding-agent--file-target-at-point ()
+  "Return the local file target at point, or nil.
+This is the file-only view of `pi-coding-agent--target-at-point'; browser URLs
+are deliberately excluded for shell commands and file-specific consumers."
+  (let ((target (pi-coding-agent--target-at-point)))
+    (and (memq (plist-get target :source) '(:tool :link :text))
+         target)))
 
 (defconst pi-coding-agent--shell-execution-buffer-variables
   '(process-environment exec-path shell-file-name shell-command-switch
@@ -5024,17 +5153,46 @@ A target without a location preserves native behavior."
                (not (derived-mode-p 'dired-mode)))
       (pi-coding-agent--goto-file-target-location line column))))
 
+(defun pi-coding-agent--browse-url-target (target)
+  "Open browser URL from TARGET using Emacs' configured browser handler."
+  (let ((url (plist-get target :url))
+        (case-fold-search t))
+    (unless (and (stringp url) (string-match-p "\\`https?://" url))
+      (user-error "Invalid web link at point"))
+    (require 'browse-url)
+    (browse-url url)))
+
+(defun pi-coding-agent--mouse-visit-link (event)
+  "Visit a web or file target at the mouse position in EVENT.
+Non-target clicks retain ordinary point-setting behavior."
+  (interactive "e")
+  (let* ((position (event-start event))
+         (window (posn-window position))
+         (point (posn-point position)))
+    (if (and (window-live-p window)
+             (integer-or-marker-p point))
+        (with-selected-window window
+          (goto-char point)
+          (if-let* ((button (button-at point)))
+              (push-button event t)
+            (when-let* ((target (pi-coding-agent--target-at-point)))
+              (pcase (plist-get target :source)
+                (:url (pi-coding-agent--browse-url-target target))
+                ((or :tool :link :text)
+                 (pi-coding-agent--visit-file-target target nil))))))
+      (mouse-set-point event))))
+
 (defun pi-coding-agent--dispatch-button
     (&optional position use-mouse-action strict-return)
   "Dispatch a remapped chat button at POSITION.
 On keyboard RET, a Pi tool toggle retains its standard button action.  Every
-other button resolves once through the strict file-target visitor: authoritative
-tool ownership is preserved, while only a semantically owned local Markdown
-link is accepted outside tools.  Invalid, non-local, reference, malformed, and
-non-Markdown buttons fail closed.  Other keyboard keys, mouse events, and direct
-calls to `push-button' retain standard behavior.  USE-MOUSE-ACTION has the same
-meaning as for `push-button'.  STRICT-RETURN is non-nil only for interactive
-RET."
+other button resolves once through the target visitor: authoritative tool
+ownership is preserved, local Markdown links visit files, and HTTP(S) Markdown
+links and bare URLs open with `browse-url'.  Invalid, non-local, reference,
+malformed, and non-Markdown buttons fail closed.  Other keyboard keys, mouse
+events, and direct calls to `push-button' retain standard behavior.
+USE-MOUSE-ACTION has the same meaning as for `push-button'.  STRICT-RETURN is
+non-nil only for interactive RET."
   (interactive
    (list (if (integerp last-command-event) (point) last-command-event)
          nil
@@ -5044,29 +5202,31 @@ RET."
     (if-let* ((button (button-at (or position (point)))))
         (if (button-get button 'pi-coding-agent-tool-toggle)
             (push-button position use-mouse-action)
-          (let ((target (or (pi-coding-agent--file-target-at-point)
+          (let ((target (or (pi-coding-agent--target-at-point)
                             (user-error "No file at point"))))
-            (if (memq (plist-get target :source) '(:tool :link))
-                (pi-coding-agent--visit-file-target
-                 target current-prefix-arg)
-              (user-error "No file at point"))))
+            (pcase (plist-get target :source)
+              (:url (pi-coding-agent--browse-url-target target))
+              ((or :tool :link)
+               (pi-coding-agent--visit-file-target
+                target current-prefix-arg))
+              (_ (user-error "No file at point")))))
       (push-button position use-mouse-action))))
 
 (defun pi-coding-agent-visit-file (&optional toggle)
-  "Visit one strict file target at point.
-Targets may be file-content rows in tool output, plain path references, or
-labels of local Markdown links.  Tool headers and other non-content rows are
-not visitable.  Plain path locations use a one-based physical file line and
-optional one-based column; a line range visits its first line only.  Explicit
-locations obey `widen-automatically' in file-visiting buffers and are ignored in
-native Dired buffers.  Targets without a location preserve native point,
-mark, and narrowing.  By default, `pi-coding-agent-visit-file-other-window'
-selects which native opener Pi requests; Emacs display policy controls final
-placement.  With prefix argument TOGGLE, invert the opener request."
+  "Visit the file or web target at point.
+Targets may be file-content rows in tool output, plain path references, local
+Markdown links, HTTP(S) Markdown links, or bare HTTP(S) URLs.  Web targets use
+`browse-url'; file targets retain the existing window and location behavior.
+TOGGLE inverts the configured `pi-coding-agent-visit-file-other-window'
+choice for file targets."
   (interactive "P")
-  (let ((target (or (pi-coding-agent--file-target-at-point)
+  (let ((target (or (pi-coding-agent--target-at-point)
                     (user-error "No file at point"))))
-    (pi-coding-agent--visit-file-target target toggle)))
+    (pcase (plist-get target :source)
+      (:url (pi-coding-agent--browse-url-target target))
+      ((or :tool :link :text)
+       (pi-coding-agent--visit-file-target target toggle))
+      (_ (user-error "No file at point")))))
 
 ;;;; Diff Overlay Highlighting
 

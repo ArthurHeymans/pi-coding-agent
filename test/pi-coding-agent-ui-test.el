@@ -625,7 +625,7 @@ Closes the category from issue #234: any instance without a usable
         (delete-other-windows)))))
 
 (ert-deftest pi-coding-agent-test-chat-mode-map-binds-commands ()
-  "Chat mode map binds abort, session, context, model, and info chords."
+  "Chat mode map binds session commands and target activation."
   (dolist (expected '(("C-c C-k" . pi-coding-agent-abort)
                       ("C-c C-n" . pi-coding-agent-new-session)
                       ("C-c C-r" . pi-coding-agent-resume-session)
@@ -633,7 +633,8 @@ Closes the category from issue #234: any instance without a usable
                       ("C-c C-c" . pi-coding-agent-compact)
                       ("C-c C-m" . pi-coding-agent-select-model)
                       ("C-c C-t" . pi-coding-agent-cycle-thinking)
-                      ("C-c C-y" . pi-coding-agent-copy-last-message)))
+                      ("C-c C-y" . pi-coding-agent-copy-last-message)
+                      ("<mouse-1>" . pi-coding-agent--mouse-visit-link)))
     (should (eq (lookup-key pi-coding-agent-chat-mode-map
                             (kbd (car expected)))
                 (cdr expected)))))

@@ -9145,7 +9145,7 @@ fixture; a test may dynamically override it inside FUNCTION."
         (kill-buffer chat)))))
 
 (ert-deftest pi-coding-agent-test-local-md-ts-04-button-compatibility ()
-  "Real md-ts link buttons route local RET and reject URI RET.
+  "Real md-ts link buttons route local and HTTP(S) RET.
 Skip when the loaded md-ts-mode does not provide link buttons, as in the
 supported installed 0.3 dependency lane."
   (let ((overriding-terminal-local-map nil)
@@ -9189,7 +9189,8 @@ supported installed 0.3 dependency lane."
       (search-forward "Remote")
       (goto-char (match-beginning 0))
       (should (button-at (point)))
-      (let ((buffer (current-buffer)))
+      (let ((buffer (current-buffer))
+            opened)
         (save-window-excursion
           (switch-to-buffer buffer)
           (cl-letf (((symbol-function 'find-file)
@@ -9197,17 +9198,13 @@ supported installed 0.3 dependency lane."
                     ((symbol-function 'find-file-other-window)
                      (lambda (&rest _) (ert-fail "URI RET opened a file")))
                     ((symbol-function 'browse-url)
-                     (lambda (&rest _) (ert-fail "URI RET browsed"))))
-            (let ((err (should-error (execute-kbd-macro (kbd "RET"))
-                                     :type 'user-error)))
-              (should (equal "No file at point"
-                             (error-message-string err))))))))))
+                     (lambda (url) (setq opened url))))
+            (execute-kbd-macro (kbd "RET"))))
+        (should (equal "https://example.com/x" opened))))))
 
 (ert-deftest pi-coding-agent-test-standard-nonlocal-link-buttons-fail-closed ()
   "RET never activates standard buttons on non-local or invalid link text."
-  (dolist (case '(("[src/fallback.el](https://example.com/x)"
-                   "src/fallback.el")
-                  ("[src/fallback.el](mailto:user@example.com)"
+  (dolist (case '(("[src/fallback.el](mailto:user@example.com)"
                    "src/fallback.el")
                   ("[src/fallback.el][reference]\n\n[reference]: docs/actual.el"
                    "src/fallback.el")
@@ -9374,6 +9371,76 @@ supported installed 0.3 dependency lane."
                                (error-message-string err)))))))
       (when (buffer-live-p chat)
         (kill-buffer chat)))))
+
+(ert-deftest pi-coding-agent-test-web-markdown-link-opens-in-browser ()
+  "HTTP(S) Markdown links open through `browse-url' on RET."
+  (dolist (markdown '("[Postplan](https://postplan.dev/draft)"
+                      "[Postplan](<https://postplan.dev/draft>)"))
+    (with-temp-buffer
+      (pi-coding-agent-chat-mode)
+      (let ((inhibit-read-only t))
+        (insert markdown))
+      (font-lock-ensure)
+      (goto-char (point-min))
+      (search-forward "Postplan")
+      (goto-char (match-beginning 0))
+      (should (eq 'highlight (get-char-property (point) 'mouse-face)))
+      (let (opened)
+        (cl-letf (((symbol-function 'browse-url)
+                   (lambda (url) (setq opened url))))
+          (pi-coding-agent-visit-file))
+        (should (equal "https://postplan.dev/draft" opened))))))
+
+(ert-deftest pi-coding-agent-test-bare-web-url-opens-in-browser ()
+  "A bare HTTP(S) URL opens through `browse-url' on RET."
+  (with-temp-buffer
+    (pi-coding-agent-chat-mode)
+    (let ((inhibit-read-only t))
+      (insert "https://postplan.dev/a_(draft)."))
+    (font-lock-ensure)
+    (goto-char (point-min))
+    (should (eq 'highlight (get-char-property (point) 'mouse-face)))
+    (let (opened)
+      (cl-letf (((symbol-function 'browse-url)
+                 (lambda (url) (setq opened url))))
+        (pi-coding-agent-visit-file))
+      (should (equal "https://postplan.dev/a_(draft)" opened)))))
+
+(ert-deftest pi-coding-agent-test-web-link-opens-with-mouse-1 ()
+  "Mouse-1 opens a web link through the chat target dispatcher."
+  (let ((chat (generate-new-buffer " *pi-coding-agent-web-mouse*"))
+        opened)
+    (unwind-protect
+        (save-window-excursion
+          (switch-to-buffer chat)
+          (pi-coding-agent-chat-mode)
+          (let ((inhibit-read-only t))
+            (insert "https://postplan.dev/draft"))
+          (font-lock-ensure)
+          (goto-char (point-min))
+          (cl-letf (((symbol-function 'browse-url)
+                     (lambda (url) (setq opened url))))
+            (pi-coding-agent--mouse-visit-link
+             (list 'mouse-1
+                   (list (selected-window) (point) '(0 . 0) 0))))
+          (should (equal "https://postplan.dev/draft" opened)))
+      (when (buffer-live-p chat)
+        (kill-buffer chat)))))
+
+(ert-deftest pi-coding-agent-test-web-url-in-code-is-not-active ()
+  "HTTP(S) text inside inline or fenced code is neither highlighted nor active."
+  (dolist (markdown '("`https://postplan.dev/draft`"
+                      "```text\nhttps://postplan.dev/draft\n```"))
+    (with-temp-buffer
+      (pi-coding-agent-chat-mode)
+      (let ((inhibit-read-only t))
+        (insert markdown))
+      (font-lock-ensure)
+      (goto-char (point-min))
+      (search-forward "https://")
+      (goto-char (match-beginning 0))
+      (should-not (get-char-property (point) 'mouse-face))
+      (should-error (pi-coding-agent-visit-file) :type 'user-error))))
 
 (ert-deftest pi-coding-agent-test-installed-md-ts-03-keeps-link-label-unbuttonized ()
   "Installed md-ts-mode 0.3 leaves Markdown link Return dispatch to chat mode."

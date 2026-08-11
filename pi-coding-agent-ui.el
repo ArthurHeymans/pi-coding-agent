@@ -57,8 +57,10 @@
 (declare-function pi-coding-agent-shell-command-at-point "pi-coding-agent-render")
 (declare-function pi-coding-agent-visit-file "pi-coding-agent-render")
 (declare-function pi-coding-agent--dispatch-button "pi-coding-agent-render")
+(declare-function pi-coding-agent--mouse-visit-link "pi-coding-agent-render")
 (declare-function pi-coding-agent--cleanup-on-kill "pi-coding-agent-render")
 (declare-function pi-coding-agent--restore-tool-properties "pi-coding-agent-render")
+(declare-function pi-coding-agent--fontify-web-links "pi-coding-agent-render")
 (declare-function pi-coding-agent--maybe-refresh-hot-tail-tables "pi-coding-agent-table")
 
 ;; pi-coding-agent-input.el (input buffer commands)
@@ -546,6 +548,7 @@ Return nil when PATH is not a string."
     (define-key map (kbd "!") #'pi-coding-agent-shell-command-at-point)
     (define-key map (kbd "RET") #'pi-coding-agent-visit-file)
     (define-key map (kbd "<return>") #'pi-coding-agent-visit-file)
+    (define-key map [mouse-1] #'pi-coding-agent--mouse-visit-link)
     (define-key map [remap push-button] #'pi-coding-agent--dispatch-button)
     map)
   "Keymap for `pi-coding-agent-chat-mode'.")
@@ -875,7 +878,9 @@ This is a read-only buffer showing the conversation history."
   ;; Recent content is hot by default in a fresh chat buffer.
   (setq-local pi-coding-agent--hot-tail-start (copy-marker (point-min) nil))
 
-  ;; Run after font-lock to undo markdown damage in tool overlays.
+  ;; Run after font-lock to undo markdown damage in tool overlays and decorate
+  ;; visible web links with hover highlighting.
+  (font-lock-add-keywords nil '((pi-coding-agent--fontify-web-links)) 'append)
   (jit-lock-register #'pi-coding-agent--restore-tool-properties)
 
   ;; Compute theme-derived faces used by chat overlays.
