@@ -41,11 +41,13 @@
 ;;   `pi-coding-agent-input-next-message'    Navigate next chat message
 ;;   `pi-coding-agent-history-isearch-backward'  History search (C-r)
 ;;   `pi-coding-agent-queue-steering'        Steering message (C-c C-s)
+;;   `pi-coding-agent-manage-queued-messages' Edit or remove queued messages (C-c C-q)
 
 ;;; Code:
 
 (require 'pi-coding-agent-render)
 (require 'ring)
+(require 'seq)
 
 ;;;; Input History (comint/eshell style)
 
@@ -301,6 +303,114 @@ Adds TEXT to history, resets history navigation, and clears input."
   (pi-coding-agent--accept-input-text text)
   (with-current-buffer chat-buf
     (pi-coding-agent--push-followup text)))
+
+(defvar pi-coding-agent--queued-message-selection-buffer nil
+  "Chat buffer whose queue is being selected from.")
+
+(defun pi-coding-agent--queued-message-candidates (chat-buf)
+  "Return numbered completion candidates for queued messages in CHAT-BUF."
+  (with-current-buffer chat-buf
+    (cl-loop for message in (pi-coding-agent--followups-in-fifo-order)
+             for index from 0
+             collect
+             (propertize
+              (format "%d: %s" (1+ index)
+                      (truncate-string-to-width
+                       (replace-regexp-in-string "[\n\r]+" " " message)
+                       70 nil nil "…"))
+              'pi-coding-agent-queue-index index
+              'pi-coding-agent-chat-buffer chat-buf))))
+
+(defun pi-coding-agent--queued-message-completion-table (candidates)
+  "Return completion table for queued-message CANDIDATES."
+  (lambda (string predicate action)
+    (if (eq action 'metadata)
+        '(metadata (category . pi-coding-agent-queued-message)
+                   (display-sort-function . identity)
+                   (cycle-sort-function . identity))
+      (complete-with-action action candidates string predicate))))
+
+(defun pi-coding-agent--queued-message-context (candidate)
+  "Return (CHAT-BUF INDEX) represented by queued-message CANDIDATE."
+  (let ((chat-buf (or (get-text-property 0 'pi-coding-agent-chat-buffer candidate)
+                      pi-coding-agent--queued-message-selection-buffer))
+        (index (or (get-text-property 0 'pi-coding-agent-queue-index candidate)
+                   (and (string-match "\\`\\([0-9]+\\):" candidate)
+                        (1- (string-to-number (match-string 1 candidate)))))))
+    (when (and (buffer-live-p chat-buf) (natnump index))
+      (list chat-buf index))))
+
+(defun pi-coding-agent--remove-queued-message-at (chat-buf index)
+  "Remove and return queued message at FIFO INDEX in CHAT-BUF."
+  (with-current-buffer chat-buf
+    (let ((messages (pi-coding-agent--followups-in-fifo-order)))
+      (when (< index (length messages))
+        (prog1 (nth index messages)
+          (setq pi-coding-agent--followup-queue
+                (reverse (append (seq-take messages index)
+                                 (nthcdr (1+ index) messages)))))))))
+
+(defun pi-coding-agent-edit-queued-message (candidate)
+  "Move queued message CANDIDATE back to the input buffer for editing."
+  (interactive (list (pi-coding-agent--read-queued-message "Edit queued message: ")))
+  (when-let* ((context (pi-coding-agent--queued-message-context candidate))
+              (chat-buf (car context))
+              (message (pi-coding-agent--remove-queued-message-at
+                        chat-buf (cadr context))))
+    (with-current-buffer chat-buf
+      (pi-coding-agent--restore-input-text message))
+    (when-let* ((input-buf (buffer-local-value
+                            'pi-coding-agent--input-buffer chat-buf))
+                ((buffer-live-p input-buf)))
+      (pop-to-buffer input-buf))
+    (message "Pi: Queued message moved to input for editing")))
+
+(defun pi-coding-agent-delete-queued-message (candidate)
+  "Delete queued message CANDIDATE."
+  (interactive (list (pi-coding-agent--read-queued-message "Delete queued message: ")))
+  (when-let* ((context (pi-coding-agent--queued-message-context candidate))
+              (message (pi-coding-agent--remove-queued-message-at
+                        (car context) (cadr context))))
+    (message "Pi: Deleted queued message: %s"
+             (truncate-string-to-width
+              (replace-regexp-in-string "[\n\r]+" " " message) 50 nil nil "…"))))
+
+(defun pi-coding-agent--read-queued-message (prompt)
+  "Read a queued message with PROMPT, preserving FIFO display order."
+  (let* ((chat-buf (pi-coding-agent--get-chat-buffer))
+         (candidates (and chat-buf
+                          (pi-coding-agent--queued-message-candidates chat-buf))))
+    (unless candidates
+      (user-error "Pi: No queued messages"))
+    (let ((pi-coding-agent--queued-message-selection-buffer chat-buf))
+      (completing-read prompt
+                       (pi-coding-agent--queued-message-completion-table candidates)
+                       nil t))))
+
+(defun pi-coding-agent-manage-queued-messages ()
+  "Select a queued message, then edit it in the input buffer or remove it.
+Embark users can invoke either action directly on a completion candidate."
+  (interactive)
+  (let* ((candidate (pi-coding-agent--read-queued-message "Queued message: "))
+         (action (read-multiple-choice
+                  "Queued message action: "
+                  '((?e "edit" "move to the input buffer for editing")
+                    (?d "delete" "remove from the queue")))))
+    (pcase (car action)
+      (?e (pi-coding-agent-edit-queued-message candidate))
+      (?d (pi-coding-agent-delete-queued-message candidate)))))
+
+(defvar pi-coding-agent-queued-message-embark-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "e") #'pi-coding-agent-edit-queued-message)
+    (define-key map (kbd "d") #'pi-coding-agent-delete-queued-message)
+    map)
+  "Embark actions for queued-message completion candidates.")
+
+(with-eval-after-load 'embark
+  (add-to-list 'embark-keymap-alist
+               '(pi-coding-agent-queued-message
+                 . pi-coding-agent-queued-message-embark-map)))
 
 (defun pi-coding-agent-send ()
   "Send the current input buffer contents to pi.

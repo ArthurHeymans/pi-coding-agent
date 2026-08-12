@@ -18,6 +18,65 @@
 
 ;;; Sending Prompts
 
+(ert-deftest pi-coding-agent-test-queued-message-candidates-preserve-fifo-and-duplicates ()
+  "Queued-message candidates are numbered in FIFO order, including duplicates."
+  (with-temp-buffer
+    (setq pi-coding-agent--followup-queue '("same" "second" "same"))
+    (let ((candidates (pi-coding-agent--queued-message-candidates
+                       (current-buffer))))
+      (should (equal (mapcar #'substring-no-properties candidates)
+                     '("1: same" "2: second" "3: same")))
+      (should (equal (mapcar (lambda (candidate)
+                               (get-text-property
+                                0 'pi-coding-agent-queue-index candidate))
+                             candidates)
+                     '(0 1 2))))))
+
+(ert-deftest pi-coding-agent-test-remove-queued-message-at-uses-fifo-index ()
+  "Removing a queued message uses its position rather than its text."
+  (with-temp-buffer
+    (setq pi-coding-agent--followup-queue '("same" "middle" "same"))
+    (should (equal (pi-coding-agent--remove-queued-message-at
+                    (current-buffer) 2)
+                   "same"))
+    (should (equal (pi-coding-agent--followups-in-fifo-order)
+                   '("same" "middle")))))
+
+(ert-deftest pi-coding-agent-test-edit-queued-message-restores-it-to-input ()
+  "Editing removes the selected queue entry and restores it to the input."
+  (let ((chat-buf (generate-new-buffer " *pi-queue-edit-chat*"))
+        (input-buf (generate-new-buffer " *pi-queue-edit-input*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer chat-buf
+            (setq pi-coding-agent--input-buffer input-buf
+                  pi-coding-agent--followup-queue '("later" "edit me")))
+          (with-current-buffer input-buf
+            (insert "draft"))
+          (let ((candidate (car (pi-coding-agent--queued-message-candidates
+                                 chat-buf))))
+            (save-window-excursion
+              (pi-coding-agent-edit-queued-message candidate)))
+          (with-current-buffer chat-buf
+            (should (equal pi-coding-agent--followup-queue '("later"))))
+          (with-current-buffer input-buf
+            (should (equal (buffer-string) "edit me\n\ndraft"))))
+      (kill-buffer chat-buf)
+      (kill-buffer input-buf))))
+
+(ert-deftest pi-coding-agent-test-queued-message-completion-has-embark-category ()
+  "Queue completion advertises the category used by its Embark action map."
+  (let* ((table (pi-coding-agent--queued-message-completion-table '("1: one")))
+         (metadata (completion-metadata "" table nil)))
+    (should (eq (completion-metadata-get metadata 'category)
+                'pi-coding-agent-queued-message))
+    (should (eq (lookup-key pi-coding-agent-queued-message-embark-map
+                            (kbd "e"))
+                #'pi-coding-agent-edit-queued-message))
+    (should (eq (lookup-key pi-coding-agent-queued-message-embark-map
+                            (kbd "d"))
+                #'pi-coding-agent-delete-queued-message))))
+
 (ert-deftest pi-coding-agent-test-send-extracts-text ()
   "pi-coding-agent-send extracts text from input buffer and clears it."
   (let ((sent-text nil))

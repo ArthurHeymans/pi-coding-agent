@@ -71,6 +71,7 @@
 (declare-function pi-coding-agent-next-input "pi-coding-agent-input")
 (declare-function pi-coding-agent-history-isearch-backward "pi-coding-agent-input")
 (declare-function pi-coding-agent-queue-steering "pi-coding-agent-input")
+(declare-function pi-coding-agent-manage-queued-messages "pi-coding-agent-input")
 (declare-function pi-coding-agent-input-mode "pi-coding-agent-input")
 
 ;; pi-coding-agent-menu.el (menu and session commands)
@@ -918,8 +919,9 @@ removing the instructional header that would otherwise appear."
     (define-key map (kbd "<C-up>") #'pi-coding-agent-previous-input)
     (define-key map (kbd "<C-down>") #'pi-coding-agent-next-input)
     (define-key map (kbd "C-r") #'pi-coding-agent-history-isearch-backward)
-    ;; Message queuing (steering only - follow-up handled by C-c C-c)
+    ;; Message queuing
     (define-key map (kbd "C-c C-s") #'pi-coding-agent-queue-steering)
+    (define-key map (kbd "C-c C-q") #'pi-coding-agent-manage-queued-messages)
     map)
   "Keymap for `pi-coding-agent-input-mode'.")
 

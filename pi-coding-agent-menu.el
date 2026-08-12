@@ -1497,6 +1497,7 @@ Uses commands from pi's `get_commands' RPC."
    ["Actions"
     ("RET" "send" pi-coding-agent-send)
     ("s" "steer" pi-coding-agent-queue-steering)
+    ("q" "queued messages" pi-coding-agent-manage-queued-messages)
     ("k" "abort" pi-coding-agent-abort)]]
   [["Model"
     ("m" "select" pi-coding-agent-select-model)
