@@ -282,6 +282,10 @@ visited local regular readable .jsonl file when there is one."
         (pi-coding-agent--resume-selected-session proc chat-buf session-file))
       chat-buf)))
 
+;; Load cross-project browsing after the entry-point functions it invokes have
+;; been defined.  The browser itself depends only on the lower menu/UI chain.
+(require 'pi-coding-agent-sessions)
+
 ;;;###autoload
 (defun pi-coding-agent-toggle ()
   "Toggle pi coding agent window visibility for the current project.

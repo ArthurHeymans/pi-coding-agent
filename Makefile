@@ -20,7 +20,7 @@ SELECTOR ?=
 # Example: make test VERBOSE=1
 VERBOSE ?=
 
-.PHONY: test test-unit test-core test-ui test-render test-table test-input test-menu test-build
+.PHONY: test test-unit test-core test-ui test-render test-table test-input test-menu test-sessions test-build
 .PHONY: test-integration test-integration-fake test-integration-real test-integration-ci test-integration-ci-real test-gui test-gui-ci test-all
 .PHONY: bench bench-batch bench-reload-resume bench-reload-resume-batch bench-reload-resume-smoke
 .PHONY: check check-parens compile lint lint-checkdoc lint-package clean clean-cache help
@@ -35,6 +35,7 @@ help:
 	@echo "  make test-table       Table decoration tests only"
 	@echo "  make test-input       Input buffer tests only"
 	@echo "  make test-menu        Menu/session tests only"
+	@echo "  make test-sessions    Cross-project session browser tests only"
 	@echo "  make test-build       Build/dependency helper tests only"
 	@echo "  make test-unit        Compile + all unit tests"
 	@echo "  make test-integration Shared integration tests (fake first, then real; local target starts Ollama for the real lane)"
@@ -79,7 +80,7 @@ deps: .deps-stamp
 SHELL = bash
 export SELECTOR
 ERT_RUN = --eval '(let ((selector (getenv "SELECTOR"))) (if (and selector (> (length selector) 0)) (progn (require (quote ert)) (unless (ert-select-tests selector t) (error "SELECTOR matched no tests: %s" selector)) (ert-run-tests-batch-and-exit selector)) (ert-run-tests-batch-and-exit t)))'
-GUI_SELECTOR_ARG = $(if $(SELECTOR),$(SELECTOR),)
+GUI_SELECTOR_ARG = $(SELECTOR)
 
 test: .deps-stamp
 	@echo "=== Unit Tests ==="
@@ -97,6 +98,7 @@ test: .deps-stamp
 		-l pi-coding-agent-table-test \
 		-l pi-coding-agent-input-test \
 		-l pi-coding-agent-menu-test \
+		-l pi-coding-agent-sessions-test \
 		-l pi-coding-agent-build-test \
 		-l pi-coding-agent-fake-pi-test \
 		-l pi-coding-agent-gui-test-utils-test \
@@ -132,6 +134,8 @@ test-input: .deps-stamp
 	@$(BATCH_TEST) -l pi-coding-agent-input-test $(ERT_RUN)
 test-menu: .deps-stamp
 	@$(BATCH_TEST) -l pi-coding-agent-menu-test $(ERT_RUN)
+test-sessions: .deps-stamp
+	@$(BATCH_TEST) -l pi-coding-agent-sessions-test $(ERT_RUN)
 
 test-build: .deps-stamp
 	@$(BATCH_TEST) -l pi-coding-agent-build-test $(ERT_RUN)
@@ -281,7 +285,7 @@ ollama-status:
 
 check-parens:
 	@echo "=== Check Parens ==="
-	@OUTPUT=$$($(BATCH) --eval '(condition-case err (dolist (f (list "scripts/pi-coding-agent-build.el" "scripts/install-deps.el" "scripts/install-ts-grammars.el" "pi-coding-agent-core.el" "pi-coding-agent-grammars.el" "pi-coding-agent-ui.el" "pi-coding-agent-table.el" "pi-coding-agent-render.el" "pi-coding-agent-input.el" "pi-coding-agent-menu.el" "pi-coding-agent.el")) (with-current-buffer (find-file-noselect f) (check-parens) (message "%s OK" f))) (user-error (message "FAIL: %s" (error-message-string err)) (kill-emacs 1)))' 2>&1); \
+	@OUTPUT=$$($(BATCH) --eval '(condition-case err (dolist (f (list "scripts/pi-coding-agent-build.el" "scripts/install-deps.el" "scripts/install-ts-grammars.el" "pi-coding-agent-core.el" "pi-coding-agent-grammars.el" "pi-coding-agent-ui.el" "pi-coding-agent-table.el" "pi-coding-agent-render.el" "pi-coding-agent-input.el" "pi-coding-agent-menu.el" "pi-coding-agent-sessions.el" "pi-coding-agent.el")) (with-current-buffer (find-file-noselect f) (check-parens) (message "%s OK" f))) (user-error (message "FAIL: %s" (error-message-string err)) (kill-emacs 1)))' 2>&1); \
 	echo "$$OUTPUT" | grep -E "OK$$|FAIL:"; \
 	echo "$$OUTPUT" | grep -q "FAIL:" && exit 1 || true
 
@@ -293,7 +297,7 @@ compile: .deps-stamp
 		--eval "(package-initialize)" \
 		$(LOCAL_LOAD_PATH) \
 		--eval "(setq byte-compile-error-on-warn t)" \
-		-f batch-byte-compile scripts/pi-coding-agent-build.el scripts/install-deps.el scripts/install-ts-grammars.el pi-coding-agent-core.el pi-coding-agent-grammars.el pi-coding-agent-ui.el pi-coding-agent-table.el pi-coding-agent-render.el pi-coding-agent-input.el pi-coding-agent-menu.el pi-coding-agent.el
+		-f batch-byte-compile scripts/pi-coding-agent-build.el scripts/install-deps.el scripts/install-ts-grammars.el pi-coding-agent-core.el pi-coding-agent-grammars.el pi-coding-agent-ui.el pi-coding-agent-table.el pi-coding-agent-render.el pi-coding-agent-input.el pi-coding-agent-menu.el pi-coding-agent-sessions.el pi-coding-agent.el
 
 lint: lint-checkdoc lint-package
 
@@ -312,6 +316,7 @@ lint-checkdoc:
 		--eval "(checkdoc-file \"pi-coding-agent-render.el\")" \
 		--eval "(checkdoc-file \"pi-coding-agent-input.el\")" \
 		--eval "(checkdoc-file \"pi-coding-agent-menu.el\")" \
+		--eval "(checkdoc-file \"pi-coding-agent-sessions.el\")" \
 		--eval "(checkdoc-file \"pi-coding-agent.el\")" 2>&1); \
 	WARNINGS=$$(echo "$$OUTPUT" | grep -A1 "^Warning" | grep -v "^Warning\|^--$$"); \
 	if [ -n "$$WARNINGS" ]; then echo "$$WARNINGS"; exit 1; else echo "OK"; fi
@@ -327,7 +332,7 @@ lint-package:
 		          (package-install 'package-lint))" \
 		--eval "(require 'package-lint)" \
 		--eval "(setq package-lint-main-file \"pi-coding-agent.el\")" \
-		-f package-lint-batch-and-exit pi-coding-agent.el pi-coding-agent-ui.el pi-coding-agent-table.el pi-coding-agent-render.el pi-coding-agent-input.el pi-coding-agent-menu.el pi-coding-agent-core.el pi-coding-agent-grammars.el
+		-f package-lint-batch-and-exit pi-coding-agent.el pi-coding-agent-ui.el pi-coding-agent-table.el pi-coding-agent-render.el pi-coding-agent-input.el pi-coding-agent-menu.el pi-coding-agent-sessions.el pi-coding-agent-core.el pi-coding-agent-grammars.el
 
 check: compile lint test
 

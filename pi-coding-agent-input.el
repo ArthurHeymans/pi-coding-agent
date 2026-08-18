@@ -407,10 +407,20 @@ Embark users can invoke either action directly on a completion candidate."
     map)
   "Embark actions for queued-message completion candidates.")
 
-(with-eval-after-load 'embark
-  (add-to-list 'embark-keymap-alist
-               '(pi-coding-agent-queued-message
-                 . pi-coding-agent-queued-message-embark-map)))
+(defvar embark-keymap-alist)
+
+(defun pi-coding-agent--maybe-register-embark-queued-message-map (&optional _file)
+  "Register queued-message actions when Embark has loaded."
+  (when (featurep 'embark)
+    (add-to-list 'embark-keymap-alist
+                 '(pi-coding-agent-queued-message
+                   . pi-coding-agent-queued-message-embark-map))
+    (remove-hook 'after-load-functions
+                 #'pi-coding-agent--maybe-register-embark-queued-message-map)))
+
+(add-hook 'after-load-functions
+          #'pi-coding-agent--maybe-register-embark-queued-message-map)
+(pi-coding-agent--maybe-register-embark-queued-message-map)
 
 (defun pi-coding-agent-send ()
   "Send the current input buffer contents to pi.

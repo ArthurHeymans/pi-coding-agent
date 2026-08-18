@@ -219,9 +219,27 @@ For multiple sessions in the same directory, use =C-u M-x
 pi-coding-agent= and enter a session name.  Resume (=C-c C-r=) and
 fork (=C-c C-p f=) present a selection menu.  Compact (=C-c C-p c=)
 summarizes older conversation when the context window gets full; Pi
-can also compact automatically when needed.  The header line shows
-context usage and changes face when it crosses the configured warning
-and error thresholds.
+can also compact automatically when needed.
+
+Use =C-c C-b= or =M-x pi-coding-agent-sessions= to open the Pi Agent
+Ledger, a sortable cross-project view of live and recent sessions.  Use
+=C-c C-j= or =M-x pi-coding-agent-switch-session= for a fast minibuffer
+switcher.  Sessions are grouped using =project.el='s canonical project
+roots, with working and newly completed sessions first inside each
+project.  Related checkouts are grouped through VC's
+=known-other-working-trees= backend operation.  Project subheadings
+separate the groups, while the directory column shows the session's
+actual checkout or worktree.  Remote projects include their TRAMP route in
+ledger and minibuffer group labels, so identically named projects on different
+hosts remain distinct.  Live remote sessions appear immediately; press =g= in
+the ledger to explicitly scan their remote history.  Passive activity updates
+reuse cached history and do not contact remote hosts.  In the ledger, =S=
+cycles project, attention, and recent group ordering.  The chat header shows
+global active and newly completed counts; click that indicator to open the
+ledger.
+
+The header line also shows context usage and changes face when it
+crosses the configured warning and error thresholds.
 
 #+html: <a id="common-keys"></a>
 ** Common keys ⌨️
@@ -234,6 +252,8 @@ and error thresholds.
 | =C-c C-k=        | input   | 🪓 Abort current response or compaction       |
 | =C-c C-p=        | input   | 🎛️ Open transient menu                        |
 | =C-c C-r=        | input   | 📼 Resume a previous session                  |
+| =C-c C-b=        | input   | 🗂️ Open the cross-project Agent Ledger        |
+| =C-c C-j=        | input   | 🔀 Switch sessions across projects            |
 | =M-p= / =M-n=    | input   | 🕰️ Prompt history (=C-↑= / =C-↓= also work)   |
 | =C-r=            | input   | 🕵️ Incremental prompt-history search          |
 | =TAB=            | input   | 🪄 Complete paths, and =/= commands           |
@@ -247,6 +267,8 @@ and error thresholds.
 | =C-c C-k=        | chat    | 🪓 Abort current operation                    |
 | =C-c C-n=        | chat    | 🌱 New session                                |
 | =C-c C-r=        | chat    | 📼 Resume a previous session                  |
+| =C-c C-b=        | chat    | 🗂️ Open the cross-project Agent Ledger        |
+| =C-c C-j=        | chat    | 🔀 Switch sessions across projects            |
 | =C-c C-e=        | chat    | 🖨️ Export session to HTML                     |
 | =C-c C-c=        | chat    | 🗜️ Compact conversation context               |
 | =C-c C-m=        | chat    | 🧠 Select model                               |

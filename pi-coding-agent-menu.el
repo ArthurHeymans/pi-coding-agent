@@ -45,6 +45,9 @@
 (require 'pi-coding-agent-render)
 (require 'transient)
 
+(declare-function pi-coding-agent-sessions "pi-coding-agent-sessions")
+(declare-function pi-coding-agent-switch-session "pi-coding-agent-sessions")
+
 (defconst pi-coding-agent--minimum-transient-version "0.9.0"
   "Minimum supported transient version.")
 
@@ -1507,6 +1510,8 @@ Uses commands from pi's `get_commands' RPC."
     (pi-coding-agent-menu-default-thinking-display)]
    ["Info"
     ("i" "stats" pi-coding-agent-session-stats)
+    ("b" "agent ledger" pi-coding-agent-sessions)
+    ("j" "switch session" pi-coding-agent-switch-session)
     ("y" "copy last" pi-coding-agent-copy-last-message)]])
 
 (defun pi-coding-agent-refresh-commands ()

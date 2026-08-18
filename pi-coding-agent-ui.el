@@ -85,6 +85,12 @@
 (declare-function pi-coding-agent-fork-at-point "pi-coding-agent-menu")
 (declare-function pi-coding-agent-copy-last-message "pi-coding-agent-menu")
 
+;; pi-coding-agent-sessions.el (cross-project session navigation)
+(declare-function pi-coding-agent-sessions "pi-coding-agent-sessions")
+(declare-function pi-coding-agent-switch-session "pi-coding-agent-sessions")
+(declare-function pi-coding-agent-session-indicator-string
+                  "pi-coding-agent-sessions")
+
 ;;;; Customization Group
 
 (defgroup pi-coding-agent nil
@@ -536,6 +542,8 @@ Return nil when PATH is not a string."
     (define-key map (kbd "C-c C-k") #'pi-coding-agent-abort)
     (define-key map (kbd "C-c C-n") #'pi-coding-agent-new-session)
     (define-key map (kbd "C-c C-r") #'pi-coding-agent-resume-session)
+    (define-key map (kbd "C-c C-b") #'pi-coding-agent-sessions)
+    (define-key map (kbd "C-c C-j") #'pi-coding-agent-switch-session)
     (define-key map (kbd "C-c C-e") #'pi-coding-agent-export-html)
     (define-key map (kbd "C-c C-c") #'pi-coding-agent-compact)
     (define-key map (kbd "C-c C-m") #'pi-coding-agent-select-model)
@@ -914,6 +922,8 @@ removing the instructional header that would otherwise appear."
     (define-key map (kbd "C-c C-k") #'pi-coding-agent-abort)
     (define-key map (kbd "C-c C-p") #'pi-coding-agent-menu)
     (define-key map (kbd "C-c C-r") #'pi-coding-agent-resume-session)
+    (define-key map (kbd "C-c C-b") #'pi-coding-agent-sessions)
+    (define-key map (kbd "C-c C-j") #'pi-coding-agent-switch-session)
     (define-key map (kbd "M-p") #'pi-coding-agent-previous-input)
     (define-key map (kbd "M-n") #'pi-coding-agent-next-input)
     (define-key map (kbd "<C-up>") #'pi-coding-agent-previous-input)
@@ -2361,7 +2371,10 @@ Accesses state from the linked chat buffer."
      (pi-coding-agent--header-format-identity model-short thinking activity-phase-str)
      (pi-coding-agent--header-format-stats stats)
      (pi-coding-agent--header-format-context-group session-name)
-     (pi-coding-agent--header-format-extension-group ext-status working-message))))
+     (pi-coding-agent--header-format-extension-group ext-status working-message)
+     (or (and (fboundp 'pi-coding-agent-session-indicator-string)
+              (pi-coding-agent-session-indicator-string))
+         ""))))
 
 ;;; State Management
 

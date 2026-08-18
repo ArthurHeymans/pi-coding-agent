@@ -6,11 +6,13 @@ Communicates with the pi CLI via JSON-over-stdio (RPC).
 
 ## Module Architecture
 
-Eight source modules with a strict dependency chain (no cycles), plus
+Nine source modules with a strict dependency chain (no cycles), plus
 an optional Evil integration module:
 
 ```
 pi-coding-agent.el              ← entry point, autoloads
+  ├── pi-coding-agent-sessions.el ← cross-project ledger and switcher
+  │     └── pi-coding-agent-menu.el ← transient menu, session management
   ├── pi-coding-agent-menu.el   ← transient menu, session management
   ├── pi-coding-agent-input.el  ← input buffer, history, completion
   └── pi-coding-agent-render.el ← chat rendering, tool output
@@ -46,6 +48,7 @@ module, direct `setq` is fine.
 | `pi-coding-agent-table.el` | Display-only pipe table decoration, wrapping, overlay management |
 | `pi-coding-agent-input.el` | Input history, isearch, send/abort, file/path/slash completion, queuing |
 | `pi-coding-agent-menu.el` | Transient menu, session management, model selection, commands |
+| `pi-coding-agent-sessions.el` | Cross-project session catalog, Agent Ledger, minibuffer switcher |
 | `pi-coding-agent-grammars.el` | Tree-sitter grammar recipes, install prompts, `M-x pi-coding-agent-install-grammars` |
 | `pi-coding-agent-evil.el` | Optional Evil keybindings; auto-loaded by `pi-coding-agent--maybe-load-evil-integration` when a session is set up while Evil is present. Leaf module: requires `ui`, `input`, and `menu` directly (never the top-level feature, to avoid a recursive require during auto-load). Must byte-compile and load without Evil installed |
 
@@ -59,6 +62,7 @@ module, direct `setq` is fine.
 | `test/pi-coding-agent-table-test.el` | Table decoration, overlays, streaming, resize |
 | `test/pi-coding-agent-input-test.el` | History, send/abort, queuing, completion |
 | `test/pi-coding-agent-menu-test.el` | Session management, transient menu, reconnect |
+| `test/pi-coding-agent-sessions-test.el` | Cross-project catalog, ledger, switcher, activity tracking |
 | `test/pi-coding-agent-build-test.el` | Batch helper scripts for dependency and grammar installation |
 | `test/pi-coding-agent-test.el` | Entry point / cross-module integration |
 | `test/pi-coding-agent-test-common.el` | Shared fixtures: mock-session macro, toolcall helpers, fake-pi launch helpers |
@@ -91,21 +95,25 @@ module, direct `setq` is fine.
 ## Running Tests
 
 Run all unit tests:
+
 ```bash
 make test
 ```
 
 Run tests for a single module:
+
 ```bash
 make test-core
 make test-ui
 make test-render
 make test-input
 make test-menu
+make test-sessions
 make test-build
 ```
 
 Run shared integration contracts:
+
 ```bash
 make test-integration          # fake + real
 make test-integration-fake     # fake only, fast
@@ -113,6 +121,7 @@ make test-integration-real     # real only
 ```
 
 Run a filtered subset by ERT pattern:
+
 ```bash
 make test SELECTOR=fontify-buffer-tail
 make test SELECTOR=toolcall-delta
@@ -126,6 +135,7 @@ against test names.
 
 `make test` is intentionally terse on green runs (summary-focused output).
 For full raw ERT output, use:
+
 ```bash
 make test VERBOSE=1
 make test VERBOSE=1 SELECTOR=toolcall-delta
@@ -180,6 +190,7 @@ script in `./tmp/` (gitignored) and load it into Emacs inside tmux.
 
 Every spike script needs this boilerplate at the top (use the actual
 absolute path to your checkout):
+
 ```elisp
 (setq inhibit-startup-screen t)
 (add-to-list 'load-path "/absolute/path/to/pi-coding-agent")
@@ -192,6 +203,7 @@ absolute path to your checkout):
 `md-ts-mode` and `transient` are on `load-path` before `require` runs.
 
 Launch with (from the project root):
+
 ```bash
 tmux new-session -d -s test -x 120 -y 40 \
   "emacs -nw -Q -l $PWD/tmp/spike.el 2>tmp/spike.log"
@@ -199,6 +211,7 @@ sleep 2 && tmux capture-pane -t test -p
 ```
 
 To start a full interactive pi-coding-agent session in tmux:
+
 ```bash
 tmux new-session -d -s test -x 120 -y 40 \
   "emacs -nw -Q --eval \"(progn (require 'package) (package-initialize) \
@@ -207,6 +220,7 @@ tmux new-session -d -s test -x 120 -y 40 \
 ```
 
 Common gotchas:
+
 - **`-Q` is required** but skips package init — the boilerplate above fixes that
 - **Sleep timing**: use `sleep 2` for UI ops, `sleep 10`+ for LLM responses
 - **Buffer names** follow `*pi-coding-agent-{chat,input}:<dir>*` (abbreviated),
@@ -222,6 +236,7 @@ new RPC commands, understanding event formats, or checking how the TUI
 handles something, consult its source.
 
 **Finding the checkout:** Look for a local clone, or clone one:
+
 ```bash
 PI_MONO=$(find ~/co ~/src ~/projects /tmp -maxdepth 2 -name "pi-mono" -type d 2>/dev/null | head -1)
 if [ -z "$PI_MONO" ]; then
